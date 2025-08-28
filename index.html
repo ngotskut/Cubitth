@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>Flappy Lamumu — Orbit Day/Night (15s per phase)</title>
+<title>Flappy Lamumu — Smooth Day/Night 15s</title>
 <style>
   *,*::before,*::after{box-sizing:border-box}
   html,body{height:100%;margin:0}
@@ -81,49 +81,50 @@ btnStart.addEventListener('click',()=>{
   overlay.style.display='none';
 });
 
-/* ========= SKY (orbit & 15s per fase) ========= */
-// Urutan yang kamu minta: Day → Sunset → Night → Dawn
-const PHASE_MS = 15000;                    // 15 detik / fase
-const DAY_MS   = PHASE_MS * 4;             // total 60 dtk
-const BG_FADE_MS = 1200;                   // fade saat ganti fase
+/* ========= SKY (orbit + continuous cross-fade) ========= */
+// Urutan fase: Day → Sunset → Night → Dawn
+const PHASE_SEC = 15;                 // 15 detik / fase
+const DAY_SEC   = PHASE_SEC * 4;      // 60 detik / “sehari”
+const BLEND_PORTION = 0.20;           // 20% terakhir fase ikut crossfade
 const BG_PARALLAX = 0.15;
 
 const phases = [
-  { name:'day',    skyTop:'#8fd8ff', skyBot:'#eaf8ff', stars:0,   sunVis:1.0, moonVis:0.0 },
+  { name:'day',    skyTop:'#8fd8ff', skyBot:'#eaf8ff', stars:0.0, sunVis:1.0, moonVis:0.0 },
   { name:'sunset', skyTop:'#ffb38a', skyBot:'#ffd9a8', stars:0.2, sunVis:1.0, moonVis:0.3 },
   { name:'night',  skyTop:'#0a0f1e', skyBot:'#121a2c', stars:1.0, sunVis:0.0, moonVis:1.0 },
   { name:'dawn',   skyTop:'#244b9a', skyBot:'#3e74c9', stars:0.3, sunVis:0.8, moonVis:0.6 },
 ];
 
-let phaseIdx = 0, nextPhaseIdx = 1;
-let phaseElapsed = 0;     // ms dalam fase saat ini
-let fadeLeft = 0;         // ms sisa transisi
-let cloudOffset1=0, cloudOffset2=0;
-let lastDt=1/60;
-
 const STARS=Array.from({length:140},()=>({x:Math.random(),y:Math.random()*0.6,tw:0.5+Math.random()*0.6}));
+let dayClock = PHASE_SEC * 1.0; // start “siang” (fase 0) di puncak
 
-// Orbit elips (selalu kontinu, tidak bergantung fase)
-let dayClock = 0; // ms sepanjang "hari"
+const smooth01 = t => t*t*(3-2*t);
+const mixHex=(a,b,t)=>{const p=n=>parseInt(n,16);const A=[p(a.slice(1,3)),p(a.slice(3,5)),p(a.slice(5,7))];const B=[p(b.slice(1,3)),p(b.slice(3,5)),p(b.slice(5,7))];const C=A.map((v,i)=>Math.round(v+(B[i]-v)*t));return`#${C.map(v=>v.toString(16).padStart(2,'0')).join('')}`;}
+const hexToRgb=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+
 function sunPos(){
-  const frac = (dayClock % DAY_MS) / DAY_MS;                 // 0..1
+  const frac = (dayClock % DAY_SEC) / DAY_SEC;          // 0..1
   const cx=W*0.5, cy=H*0.62, rx=W*0.42, ry=H*0.36;
-  const ang = frac*2*Math.PI + Math.PI/2;                    // start = siang (puncak)
+  const ang = frac*2*Math.PI + Math.PI/2;               // start: siang (atas)
   return { x: cx + Math.cos(ang)*rx, y: cy - Math.sin(ang)*ry, elev: Math.sin(ang) };
 }
 function moonPos(){ const s=sunPos(); const cx=W*0.5, cy=H*0.62, rx=W*0.42, ry=H*0.36; const ang=Math.atan2(cy-s.y, s.x-cx)+Math.PI; return { x: cx + Math.cos(ang)*rx, y: cy - Math.sin(ang)*ry, elev: -s.elev }; }
 
-// util warna
-function mixHex(a,b,t){ const p=n=>parseInt(n,16);const A=[p(a.slice(1,3)),p(a.slice(3,5)),p(a.slice(5,7))],B=[p(b.slice(1,3)),p(b.slice(3,5)),p(b.slice(5,7))];const C=A.map((v,i)=>Math.round(v+(B[i]-v)*t));return `#${C.map(v=>v.toString(16).padStart(2,'0')).join('')}`;}
-function hexToRgb(h){const p=n=>parseInt(n,16);return[p(h.slice(1,3)),p(h.slice(3,5)),p(h.slice(5,7))];}
-const smooth01=t=>t*t*(3-2*t);
-
-// gambar benda langit & langit
 function drawGradient(top,bot){ const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,top); g.addColorStop(1,bot); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
 function drawSunAt(x,y,a){ const R=Math.min(W,H)*0.08; ctx.save(); ctx.globalAlpha=a; ctx.fillStyle='#FFD166'; ctx.beginPath(); ctx.arc(x,y,R,0,Math.PI*2); ctx.fill(); const g=ctx.createRadialGradient(x,y,R*0.25,x,y,R*1.6); g.addColorStop(0,'rgba(255,209,102,0.70)'); g.addColorStop(1,'rgba(255,209,102,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,R*1.6,0,Math.PI*2); ctx.fill(); ctx.restore(); }
 function drawMoonAt(x,y,a){ const R=Math.min(W,H)*0.06; ctx.save(); ctx.globalAlpha=a; ctx.fillStyle='#E2E8F0'; ctx.beginPath(); ctx.arc(x,y,R,0,Math.PI*2); ctx.fill(); ctx.restore(); }
 function drawStars(a){ ctx.save(); ctx.fillStyle='#E5E7EB'; for(const s of STARS){ const tw=0.6+Math.sin(performance.now()/400*s.tw)*0.4; ctx.globalAlpha=a*tw; ctx.fillRect(s.x*W,s.y*H,2,2);} ctx.restore(); }
 function drawClouds(phase){ const baseA = (phase.name==='night')? 0.45 : 0.92; ctx.save(); ctx.globalAlpha=baseA; const cloud=(x,y,s)=>{ctx.beginPath();ctx.fillStyle='rgba(255,255,255,0.95)';ctx.arc(x,y,s,0,Math.PI*2);ctx.arc(x+s*0.8,y+s*0.2,s*0.9,0,Math.PI*2);ctx.arc(x-s*0.7,y+s*0.25,s*0.75,0,Math.PI*2);ctx.fill();}; const y1=H*0.18,y2=H*0.28; for(let i=-1;i<=4;i++) cloud((i*0.35*W)+(cloudOffset1%W),y1,Math.min(W,H)*0.07); ctx.globalAlpha=baseA*0.85; for(let i=-1;i<=4;i++) cloud((i*0.50*W)+(cloudOffset2%W),y2,Math.min(W,H)*0.055); ctx.restore(); }
+function drawHorizonGlow(sun){ // kilau tipis di horizon saat sunrise/sunset
+  const h = Math.abs(sun.elev);
+  const k = Math.max(0, 1 - (h/0.25)); // kuat saat |elev| kecil
+  if(k<0.01) return;
+  const y = H*0.62; const grad = ctx.createLinearGradient(0,y-80,0,y+140);
+  grad.addColorStop(0,`rgba(255,160,60,${0.15*k})`);
+  grad.addColorStop(0.5,`rgba(255,200,120,${0.18*k})`);
+  grad.addColorStop(1,`rgba(255,220,160,0)`);
+  ctx.fillStyle=grad; ctx.fillRect(0,y-120,W,240);
+}
 
 /* ========= Update & Draw ========= */
 function needPipe(){ if(!pipes.length) return true; const last=pipes[pipes.length-1]; return (W-last.x) >= rand(PIPE.spawnMin,PIPE.spawnMax); }
@@ -133,28 +134,16 @@ function spawnBonusAtPipe(p){ const mid=p.y+p.gap/2; const y=clamp(mid+(Math.ran
 let last=performance.now();
 requestAnimationFrame(function loop(now){
   const dt=Math.min(0.033,(now-last)/1000); last=now;
+  // orbit time selalu jalan → transisi konsisten
+  dayClock = (dayClock + dt) % DAY_SEC;
+
   if(state.running) update(dt);
   draw(dt);
   requestAnimationFrame(loop);
 });
 
 function update(dt){
-  lastDt=dt;
-  // advance "day clock" selalu (agar orbit kontinu meski tidak main)
-  dayClock = (dayClock + dt*1000) % DAY_MS;
-
-  // fase & transisi
-  phaseElapsed += dt*1000;
-  if(phaseElapsed >= PHASE_MS){
-    phaseElapsed -= PHASE_MS;
-    phaseIdx = (phaseIdx + 1) % phases.length;
-    nextPhaseIdx = (phaseIdx + 1) % phases.length;
-    fadeLeft = BG_FADE_MS;
-  }
-  if(fadeLeft > 0){ fadeLeft = Math.max(0, fadeLeft - dt*1000); }
-
-  // gameplay standar
-  state.time+=dt;
+  state.time+=dt; lastDt=dt;
   state.speed=Math.min(state.speedMax, state.speedBase + state.pipesPassed*state.speedPerPipe);
   if(needPipe()) spawnPipe();
 
@@ -188,44 +177,54 @@ function gameOver(){ state.running=false; overlay.style.display='flex'; }
 
 /* ========= DRAW ========= */
 function draw(dt){
-  // Reset state canvas
   ctx.save(); ctx.setTransform(DPR,0,0,DPR,0,0); ctx.globalAlpha=1; ctx.globalCompositeOperation='source-over';
   ctx.clearRect(0,0,W,H);
 
-  // blending fase
-  const tFade = (fadeLeft>0) ? 1 - (fadeLeft/BG_FADE_MS) : 0;
-  const cur = phases[phaseIdx], nxt = phases[nextPhaseIdx];
+  // Phase weights (continuous)
+  const phaseFloat = (dayClock / PHASE_SEC) % 4;  // 0..4
+  const i0 = Math.floor(phaseFloat);              // fase dasar
+  const i1 = (i0 + 1) % 4;                        // fase berikutnya
+  const tLocal = phaseFloat - i0;                 // progress dalam fase 0..1
+  const blendStart = 1 - BLEND_PORTION;           // mulai blending di 80%
+  const wNext = (tLocal<=blendStart) ? 0 : smooth01((tLocal - blendStart)/(BLEND_PORTION)); // 0..1
+  const wCur  = 1 - wNext;
 
-  // langit
-  const skyTop = tFade ? mixHex(cur.skyTop, nxt.skyTop, tFade) : cur.skyTop;
-  const skyBot = tFade ? mixHex(cur.skyBot, nxt.skyBot, tFade) : cur.skyBot;
+  const cur = phases[i0], nxt = phases[i1];
+
+  // Sky gradient (no jump)
+  const skyTop = (wNext===0)? cur.skyTop : mixHex(cur.skyTop, nxt.skyTop, wNext);
+  const skyBot = (wNext===0)? cur.skyBot : mixHex(cur.skyBot, nxt.skyBot, wNext);
   drawGradient(skyTop, skyBot);
 
-  // orbit & alpha
+  // Orbit & alpha
   const s = sunPos(), m = moonPos();
-  // base alpha sesuai elevasi terhadap horizon (smooth)
-  const aSunElev  = smooth01( clamp((s.elev + 0.05)/0.22, 0, 1) );   // muncul sedikit sebelum melewati horizon
-  const aMoonElev = smooth01( clamp((m.elev + 0.02)/0.20, 0, 1) );
 
-  // visibilitas per fase (dibaur saat transisi)
-  const visSun  = (cur.sunVis*(1-tFade)) + (nxt.sunVis*tFade);
-  const visMoon = (cur.moonVis*(1-tFade)) + (nxt.moonVis*tFade);
+  // Keterlihatan karena elevasi (muncul dekat horizon)
+  const aSunElev  = smooth01( clamp((s.elev + 0.08)/0.26, 0, 1) );
+  const aMoonElev = smooth01( clamp((m.elev + 0.02)/0.22, 0, 1) );
+
+  // Bobot fase (di-blend halus)
+  const visSun  = cur.sunVis * wCur + nxt.sunVis * wNext;
+  const visMoon = cur.moonVis * wCur + nxt.moonVis * wNext;
 
   const sunA  = aSunElev  * visSun;
   const moonA = aMoonElev * visMoon;
 
-  // bintang (ikut bobot fase + makin pudar saat ada matahari)
-  const starsVis = (cur.stars*(1-tFade) + nxt.stars*tFade) * (1 - sunA*0.85);
+  // Bintang (kurangi saat matahari kuat)
+  const starsVis = (cur.stars*wCur + nxt.stars*wNext) * (1 - sunA*0.9);
   if(starsVis>0.02) drawStars(starsVis);
 
-  // gambar sun & moon
+  // Horizon glow saat sunrise/sunset
+  if (sunA>0.02 && Math.abs(s.elev) < 0.30) drawHorizonGlow(s);
+
+  // Gambar sun & moon
   if(moonA>0.01) drawMoonAt(m.x, m.y, moonA);
   if(sunA >0.01) drawSunAt (s.x, s.y, sunA);
 
-  // awan
+  // Awan
   drawClouds(cur);
 
-  // auto kontras skor
+  // Auto kontras skor
   const [r,g,b]=hexToRgb(skyTop);
   const f=x=>{x/=255;return x<=0.03928?x/12.92:Math.pow((x+0.055)/1.055,2.4)};
   const L=0.2126*f(r)+0.7152*f(g)+0.0722*f(b);
@@ -239,7 +238,7 @@ function draw(dt){
     ctx.fillRect(p.x,p.y+p.gap,p.width,H-(p.y+p.gap));
   }
 
-  // PLAYER (bola putih biar simpel)
+  // PLAYER (bola putih simple)
   if(state.running){
     ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(player.x,player.y,player.r,0,Math.PI*2); ctx.fill();
     ctx.strokeStyle='#111'; ctx.lineWidth=2; ctx.stroke();
@@ -248,13 +247,12 @@ function draw(dt){
   ctx.restore();
 }
 
-/* ========= DEBUG helper ========= */
+/* ========= DEBUG ========= */
 window.setPhase = name => {
   const order=['day','sunset','night','dawn'];
   const id = order.indexOf(String(name).toLowerCase());
-  if(id>=0){ phaseIdx=id; nextPhaseIdx=(id+1)%4; phaseElapsed=0; fadeLeft=0; }
+  if(id>=0){ dayClock = id*PHASE_SEC; }
 };
-window.clockFreeze = on => { window.__freeze = !!on; }; // tidak dipakai di versi ini, tapi disimpan untuk kelak
 
 })(); // IIFE
 </script>

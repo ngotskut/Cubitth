@@ -161,96 +161,93 @@ function drawClouds(phase){
   ctx.restore();
 }
 
-/* ================= Landscape (stylized like reference) ================= */
-/* helper: mix color with darkness based on brightness (0..1) */
-function shade(hex, k){ // k=0 → gelap malam, k=1 → warna asli
-  // campur dari #0b1a22 (malam) ke warna aslinya
-  return lerpColor('#0b1a22', hex, clamp(k,0,1));
-}
+/* === Stylized Landscape ala gambar #2 (improved) === */
+/* helper untuk shading berdasarkan waktu (siang → malam) */
+function lerp(a,b,t){return a+(b-a)*t;}
+function shade(hex, k){ return mixHex('#0b1a22', hex, clamp(k,0,1)); } // malam → warna
 
-/* generic gradient fill for a closed path */
-function fillVerticalGradient(yTop, yBottom, topColor, botColor){
-  const g = ctx.createLinearGradient(0, yTop, 0, yBottom);
-  g.addColorStop(0, topColor);
-  g.addColorStop(1, botColor);
-  ctx.fillStyle = g;
-  ctx.fill();
-}
-
-/* far mountain ridge with smooth curves */
-function drawFarRidge({y, amp, wobble=1.0, seed=0, peaks=10, top, bot}){
+/* path ridge halus */
+function ridgePath(baseY, amp, peaks, phase){
   const seg = W/peaks;
   ctx.beginPath();
-  ctx.moveTo(0, H);
-  ctx.lineTo(0, y);
-  for(let i=1;i<=peaks;i++){
-    const x = i*seg;
-    const t = seed + (i/peaks)*Math.PI*2;
-    const n = Math.sin(t)*0.55 + Math.sin(t*1.9+1.1)*0.25;
-    const yy = y - amp*(0.5 + n*0.33*wobble);
+  ctx.moveTo(0,H);
+  ctx.lineTo(0,baseY);
+  for(let i=0;i<=peaks;i++){
+    const x=i*seg;
+    const t=i/peaks * Math.PI*2 + phase;
+    const n = Math.sin(t)*0.45 + Math.sin(t*1.9+1.1)*0.25 + Math.sin(t*2.7+2.3)*0.18;
+    const y = baseY - amp*(0.55 + n*0.45);
     const cx = x - seg*0.5;
-    const cy = y - amp*(0.5 + Math.sin(t-0.6)*0.25*wobble);
-    ctx.quadraticCurveTo(cx, cy, x, yy);
+    const cy = baseY - amp*(0.55 + Math.sin((i-0.5)/peaks*Math.PI*2 + phase)*0.28);
+    ctx.quadraticCurveTo(cx, cy, x, y);
   }
-  ctx.lineTo(W, H);
-  ctx.closePath();
-  fillVerticalGradient(y-amp-40, H, top, bot);
+  ctx.lineTo(W,H); ctx.closePath();
 }
 
-/* big left/right foreground hills (valley shape like reference) */
-function drawSideHill(side, {yBase, height, curve=0.55, top, bot}){
-  // anchor positions
-  const valleyX = W*0.52;
+/* isi gradien vertikal */
+function fillGrad(yTop,yBot, top, bot){
+  const g=ctx.createLinearGradient(0,yTop,0,yBot);
+  g.addColorStop(0, top); g.addColorStop(1, bot);
+  ctx.fillStyle=g; ctx.fill();
+}
+
+/* layer pegunungan jauh */
+function drawFarRidge({y, amp, peaks, speed, time, top, bot}){
+  ridgePath(y, amp, peaks, time*speed*0.001);
+  fillGrad(y-amp-60, H, top, bot);
+}
+
+/* bukit kiri/kanan membentuk lembah */
+function drawSideHill(side, {yBase, height, curve=0.55, time, speed, top, bot}){
+  const valleyX = W*0.50;
   const peakX   = side==='left' ? W*0.18 : W*0.82;
   const startX  = side==='left' ? 0 : W;
   const ctrlDir = side==='left' ? 1 : -1;
+
+  const wob = Math.sin(time*speed*0.0006 + (side==='left'?0:1)) * H*0.01;
 
   ctx.beginPath();
   ctx.moveTo(startX, H);
   ctx.lineTo(startX, yBase);
 
-  // from edge to peak
   ctx.quadraticCurveTo(
-    startX + ctrlDir*W*0.10, yBase - height*0.35,
-    peakX,                   yBase - height
+    startX + ctrlDir*W*0.12, yBase - height*0.35 + wob,
+    peakX,                   yBase - height + wob
   );
-  // from peak down to valley
   ctx.quadraticCurveTo(
-    peakX  + ctrlDir*W*curve*0.25, yBase - height*0.55,
+    peakX  + ctrlDir*W*curve*0.28, yBase - height*0.55 + wob*0.6,
     valleyX,                       yBase - height*0.15
   );
 
-  // close to bottom
   ctx.lineTo(W, H);
   ctx.closePath();
-  fillVerticalGradient(yBase-height-60, H, top, bot);
+  fillGrad(yBase-height-60, H, top, bot);
 }
 
-/* soft highlight stripes on hills */
-function drawHillStripes(side, {yBase, height, color='#a7e37d', count=3}){
-  const valleyX = W*0.52;
+/* highlight garis lembut di badan bukit */
+function drawHillStripes(side, {yBase, height, color, count=3}){
+  const valleyX = W*0.50;
   const peakX   = side==='left' ? W*0.18 : W*0.82;
   const dir     = side==='left' ? 1 : -1;
 
   for(let k=0;k<count;k++){
     const off = (k+1)*height*0.18;
     ctx.save();
-    ctx.globalAlpha = 0.18 - k*0.05;
+    ctx.globalAlpha = 0.16 - k*0.04;
     ctx.strokeStyle = color;
-    ctx.lineWidth   = Math.max(2, H*0.006);
-
+    ctx.lineWidth = Math.max(2, H*0.006);
     ctx.beginPath();
     const y1 = (yBase - height*0.65) + off;
-    ctx.moveTo(peakX, y1);
     const midY = (yBase - height*0.28) + off*0.75;
+    ctx.moveTo(peakX, y1);
     ctx.quadraticCurveTo(peakX + dir*W*0.18, y1 + H*0.04, valleyX, midY);
     ctx.stroke();
     ctx.restore();
   }
 }
 
-/* rounded bush row in the very front */
-function drawBushRow({y, size, gap, speed, time, color}){
+/* semak bulat di depan */
+function drawBushRow({y,size,gap,speed,time,color}){
   ctx.save(); ctx.fillStyle=color;
   const off=(time*speed*0.06)%gap;
   for(let x=-gap;x<W+gap;x+=gap){
@@ -264,58 +261,65 @@ function drawBushRow({y, size, gap, speed, time, color}){
   ctx.restore();
 }
 
-/* subtle valley fog */
-function drawFog(yTop,yBot,alpha){
+/* kabut lembah */
+function drawValleyFog(yTop,yBot,alpha){
   const g=ctx.createLinearGradient(0,yTop,0,yBot);
   g.addColorStop(0,`rgba(255,255,255,${alpha})`);
   g.addColorStop(1,'rgba(255,255,255,0)');
   ctx.fillStyle=g; ctx.fillRect(0,yTop,W,yBot-yTop);
 }
 
-/* === main: call this from draw(...): drawLandscape(state.time, bright) === */
-function drawLandscape(t, bright){
-  // map brightness (0..1) → tint factor (malam lebih gelap)
-  const k = 0.45 + bright*0.55;
+/* brightness faktor dari fase (tanpa ubah kode lain) */
+function getNightFactor(){
+  const phaseFloat = (dayClock / PHASE_SEC) % 4;
+  const i0=Math.floor(phaseFloat), i1=(i0+1)%4;
+  const tLocal=phaseFloat - i0;
+  const blendStart=1 - BLEND_PORTION;
+  const wNext=(tLocal<=blendStart)?0:smooth01((tLocal-blendStart)/BLEND_PORTION);
+  const wCur=1 - wNext;
+  const table={day:0, sunset:0.35, night:0.85, dawn:0.45};
+  const cur=phases[i0], nxt=phases[i1];
+  return clamp(table[cur.name]*wCur + table[nxt.name]*wNext, 0, 0.9);
+}
 
-  // — far ridges (biru kehijauan) — mirip referensi
+/* dipanggil dari draw(): drawLandscape(state.time) */
+function drawLandscape(t){
+  const nightK = getNightFactor();     // 0 siang → 0.85 malam
+  const k = 1 - nightK;                // 1 siang → ~0.15 malam
+
+  // pegunungan jauh (biru muda → teal)
   drawFarRidge({
-    y:H*0.70, amp:H*0.10, peaks:10, seed:t*0.6,
-    top: shade('#8cc7d4', k*0.95),
-    bot: shade('#6fb3c7', k*0.90)
+    y:H*0.72, amp:H*0.14, peaks:10, speed:8, time:t,
+    top: shade('#8acfe1', k*0.98), bot: shade('#6eb4cc', k*0.94)
   });
   drawFarRidge({
-    y:H*0.77, amp:H*0.12, peaks:9, seed:1.7+t*0.9,
-    top: shade('#6bb2c0', k*0.92),
-    bot: shade('#4b90aa', k*0.88)
+    y:H*0.78, amp:H*0.14, peaks:9,  speed:10, time:t+1.3,
+    top: shade('#6fb3c7', k*0.95), bot: shade('#4f95af', k*0.92)
   });
 
-  // sedikit kabut lembah (lebih pekat saat malam)
-  drawFog(H*0.72, H*0.82, (1-bright)*0.10);
+  drawValleyFog(H*0.74, H*0.84, 0.10*(1-k+0.2)); // lebih pekat saat malam
 
-  // — mid ridge (teal) —
+  // bukit tengah (teal kehijauan)
   drawFarRidge({
-    y:H*0.83, amp:H*0.16, peaks:8, seed:3.1+t*1.2,
-    top: shade('#4aa070', k*0.95),
-    bot: shade('#2e7b54', k*0.92)
+    y:H*0.84, amp:H*0.18, peaks:8, speed:14, time:t+2.1,
+    top: shade('#49a774', k*0.98), bot: shade('#2f7e59', k*0.95)
   });
-  drawFog(H*0.80, H*0.88, (1-bright)*0.08);
 
-  // — foreground left/right hills (hijau terang) —
-  const topGreen = shade('#45ad53', k);
-  const botGreen = shade('#2d7c35', k*0.95);
+  // bukit kiri/kanan (hijau cerah) + strip highlight
+  const frontTop = shade('#3db052', k);
+  const frontBot = shade('#2a7f38', k*0.95);
 
-  drawSideHill('left',  { yBase:H*0.94, height:H*0.34, top:topGreen, bot:botGreen });
-  drawHillStripes('left',  { yBase:H*0.94, height:H*0.34, color:shade('#b8f499', k), count:3 });
+  drawSideHill('left',  { yBase:H*0.92, height:H*0.32, curve:0.55, time:t, speed:22, top:frontTop, bot:frontBot });
+  drawHillStripes('left',  { yBase:H*0.92, height:H*0.32, color:shade('#bff7a1', k) });
 
-  drawSideHill('right', { yBase:H*0.94, height:H*0.34, top:topGreen, bot:botGreen });
-  drawHillStripes('right', { yBase:H*0.94, height:H*0.34, color:shade('#b8f499', k), count:3 });
+  drawSideHill('right', { yBase:H*0.92, height:H*0.32, curve:0.55, time:t, speed:22, top:frontTop, bot:frontBot });
+  drawHillStripes('right', { yBase:H*0.92, height:H*0.32, color:shade('#bff7a1', k) });
 
-  // — bush paling depan —
-  drawBushRow({
-    y:H*0.965, size:Math.min(W,H)*0.05, gap:Math.min(W,H)*0.22,
-    speed:30, time:t, color:shade('#0f4d1f', k*0.85)
-  });
-                                  }
+  // semak paling depan
+  drawBushRow({ y:H*0.965, size:Math.min(W,H)*0.05, gap:Math.min(W,H)*0.22, speed:30, time:t, color:shade('#0f4d1f', k*0.85) });
+}
+/* === END Landscape === */
+
 /* ========= Update & Draw ========= */
 function needPipe(){ if(!pipes.length) return true; const last=pipes[pipes.length-1]; return (W-last.x) >= rand(PIPE.spawnMin,PIPE.spawnMax); }
 function spawnPipe(){ const gap=PIPE.gapBase, top=rand(50, Math.max(50,H-gap-120)); const p={x:W+10,y:top,width:PIPE.width,gap,passed:false}; pipes.push(p); if(Math.random()<BONUS.chance) spawnBonusAtPipe(p); }

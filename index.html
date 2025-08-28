@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>Flappy Lamumu — Orbit Sky + Hills</title>
+<title>Flappy Lamumu — Orbit Sky + Mountains</title>
 <style>
   *,*::before,*::after{box-sizing:border-box}
   html,body{height:100%;margin:0}
@@ -105,14 +105,13 @@ const phases = [
 
 const STARS=Array.from({length:140},()=>({x:Math.random(),y:Math.random()*0.6,tw:0.5+Math.random()*0.6}));
 
-let dayClock = 0; // detik, start di siang
+let dayClock = 0; // detik, start siang
 let cloudOffset1=0, cloudOffset2=0;
 
 const smooth01=t=>t<=0?0:t>=1?1:t*t*(3-2*t);
 const mixHex=(a,b,t)=>{const p=n=>parseInt(n,16);const A=[p(a.slice(1,3)),p(a.slice(3,5)),p(a.slice(5,7))],B=[p(b.slice(1,3)),p(b.slice(3,5)),p(b.slice(5,7))];const C=A.map((v,i)=>Math.round(v+(B[i]-v)*t));return`#${C.map(v=>v.toString(16).padStart(2,'0')).join('')}`;}
 const hexToRgb=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
 
-// Horizon dan orbit
 const horizonY = ()=> H*0.62;
 function sunPos(){
   const frac=(dayClock % DAY_SEC)/DAY_SEC; // 0..1
@@ -126,42 +125,29 @@ function moonPos(){
   return { x:cx + Math.cos(ang)*rx, y:cy - Math.sin(ang)*ry, elev:-s.elev };
 }
 
-// Sky utils
 function drawGradient(top,bot){ const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,top); g.addColorStop(1,bot); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
 
-// FIX garis putih: halo di-clip di atas horizon
+// SUN: halo hanya saat elevasi cukup tinggi → no garis horizon
 function drawSunAt(x,y,alpha,elev){
   if(alpha<=0) return;
   const R=Math.min(W,H)*0.08;
   ctx.save();
 
-  // Core: tetap sedikit terlihat meski di bawah horizon (supaya transisi halus)
-  const coreAlpha = alpha * (elev>0 ? 1 : 0.2);
+  // Core: sedikit tetap terlihat saat di bawah horizon (soft)
+  const coreAlpha = alpha * (elev>0 ? 1 : 0.15);
   ctx.globalAlpha=coreAlpha;
   ctx.fillStyle='#FFD166';
   ctx.beginPath(); ctx.arc(x,y,R,0,Math.PI*2); ctx.fill();
 
-  // Halo hanya bila di atas horizon, dan di-clip agar tak melewati horizon
-  if(elev>0){
+  // Halo aktif hanya jika cukup di atas horizon (hindari garis)
+  if(elev>0.05){
     const g=ctx.createRadialGradient(x,y,R*0.25, x,y,R*1.6);
-    g.addColorStop(0,'rgba(255,209,102,0.65)');
+    g.addColorStop(0,'rgba(255,209,102,0.60)');
     g.addColorStop(1,'rgba(255,209,102,0)');
     ctx.globalAlpha=alpha;
     ctx.fillStyle=g;
-
-    // clip area: atas horizon + sedikit offset supaya tidak “menempel”
-    const hy = horizonY() - 0.5; // -0.5px untuk menghindari seam
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0,0,W,hy);
-    ctx.clip();
-
-    ctx.beginPath();
-    ctx.arc(x,y,R*1.6,0,Math.PI*2);
-    ctx.fill();
-    ctx.restore();
+    ctx.beginPath(); ctx.arc(x,y,R*1.6,0,Math.PI*2); ctx.fill();
   }
-
   ctx.restore();
 }
 function drawMoonAt(x,y,a){ const R=Math.min(W,H)*0.06; if(a<=0) return; ctx.save(); ctx.globalAlpha=a; ctx.fillStyle='#E2E8F0'; ctx.beginPath(); ctx.arc(x,y,R,0,Math.PI*2); ctx.fill(); ctx.restore(); }
@@ -177,40 +163,39 @@ function drawClouds(phase){
   for(let i=-1;i<=4;i++) cloud((i*0.50*W)+(cloudOffset2%W),y2,Math.min(W,H)*0.055);
   ctx.restore();
 }
-function drawHorizonGlow(sun){
-  const k = Math.max(0, 1 - (Math.abs(sun.elev)/0.32)); if(k<0.01) return;
-  const hy = horizonY();
-  const grad = ctx.createLinearGradient(0,hy-80,0,hy+140);
-  grad.addColorStop(0,`rgba(255,160,60,${0.12*k})`);
-  grad.addColorStop(0.5,`rgba(255,200,120,${0.16*k})`);
-  grad.addColorStop(1,`rgba(255,220,160,0)`);
-  // Clip juga supaya tidak lewat horizon
-  ctx.save();
-  ctx.beginPath(); ctx.rect(0,0,W,hy-0.5); ctx.clip();
-  ctx.fillStyle=grad; ctx.fillRect(0,hy-120,W,240);
-  ctx.restore();
-}
 
-/* === Perbukitan hijau (parallax) === */
-function drawHills(offset=0){
-  ctx.save();
-  const g=ctx.createLinearGradient(0,H*0.75,0,H);
-  g.addColorStop(0,'#2e7d32'); // hijau atas
-  g.addColorStop(1,'#1b5e20'); // hijau gelap bawah
+/* === Pegunungan realistis (2 layer) === */
+function drawMountains({baseY, amp, peaks, speed, colorTop, colorBot, time}){
+  // gradien vertikal
+  const g=ctx.createLinearGradient(0,baseY-amp-60,0,H);
+  g.addColorStop(0, colorTop);
+  g.addColorStop(1, colorBot);
   ctx.fillStyle=g;
 
+  // bentuk pegunungan dengan kombinasi kurva (3 sinus) → kontur alami
+  const phase = time * speed * 0.001; // parallax halus
+  const segW = W / peaks;
+
   ctx.beginPath();
-  ctx.moveTo(0,H);
-  const hillH = H*0.25;
-  const waveW = W*0.5;
-  // gelombang perbukitan dengan offset parallax
-  const off = (offset % (waveW*2));
-  for(let x=-waveW; x<=W+waveW; x+=waveW){
-    const cx = x + off;
-    ctx.quadraticCurveTo(cx - waveW*0.5, H - hillH, cx, H);
+  ctx.moveTo(0, H);
+  ctx.lineTo(0, baseY);
+
+  for(let i=0;i<=peaks;i++){
+    const x = i * segW;
+    const t = (i/peaks) * Math.PI * 2;
+    const noise =
+      Math.sin(t + phase*0.6) * 0.55 +
+      Math.sin(t*2.3 + phase*0.9) * 0.25 +
+      Math.sin(t*3.7 + phase*1.4) * 0.20;
+    const y = baseY - (amp * (0.5 + noise*0.5)); // 0..1 → -amp..amp
+    const cx = x - segW*0.5;
+    const cy = baseY - (amp * (0.5 + Math.sin((i-0.5)/peaks*Math.PI*2 + phase*0.6)*0.28));
+    ctx.quadraticCurveTo(cx, cy, x, y);
   }
-  ctx.lineTo(W,H); ctx.closePath(); ctx.fill();
-  ctx.restore();
+
+  ctx.lineTo(W, H);
+  ctx.closePath();
+  ctx.fill();
 }
 
 /* ========= Update & Draw ========= */
@@ -296,20 +281,26 @@ function draw(dt){
   const sunA  = aSunElev  * visSun;
   const moonA = aMoonElev * visMoon;
 
-  // Bintang & horizon glow
+  // Bintang
   const starsVis = (cur.stars*wCur + nxt.stars*wNext) * (1 - sunA*0.9);
   if(starsVis>0.02) drawStars(starsVis);
-  if (sunA>0.02 && Math.abs(s.elev) < 0.32) drawHorizonGlow(s);
 
-  // Matahari & Bulan (no garis putih)
+  // Matahari & Bulan (halo terkontrol, no garis putih)
   if(moonA>0.01) drawMoonAt(m.x, m.y, moonA);
   if(sunA >0.01) drawSunAt (s.x, s.y, sunA, s.elev);
 
   // Awan
   drawClouds(cur);
 
-  // Perbukitan hijau (parallax lambat)
-  drawHills(state.time * 30);
+  // Pegunungan (belakang dulu → depan menutup matahari saat rendah)
+  drawMountains({
+    baseY: H*0.78, amp: H*0.22, peaks: 9, speed: 10,
+    colorTop:'#4a6b8f', colorBot:'#2e4a6a', time: state.time
+  });
+  drawMountains({
+    baseY: H*0.88, amp: H*0.28, peaks: 7, speed: 22,
+    colorTop:'#2e7d32', colorBot:'#1b5e20', time: state.time
+  });
 
   // Auto-contrast skor
   const [r,g,b]=hexToRgb(skyTop);
